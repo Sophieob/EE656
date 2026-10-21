@@ -24,8 +24,7 @@ class RX200DealerClientNode(Node):
         self.declare_parameter('gripper_start_state', value = True) # Can be set in arguments in launch files and set when you run ros2 run
         self.sequence = [
             lambda: self.send_gr_pose(True),
-            lambda: self.send_ee_pose(x = 0.3, y = 0.0, z = 0.2),
-            lambda: self.send_ee_pose(x = 0.5, y = 0.0, z = 0.2),
+            lambda: self.send_ee_pose(x = 0.3, y = 0.0, z = 0.08, qy = 0.7071068, qw = 0.7071068), # Pitch 90deg about y, gripper pointing down
             lambda: self.send_gr_pose(False),
         ]
         self.step = 0
@@ -43,13 +42,13 @@ class RX200DealerClientNode(Node):
         self.step += 1
 
 
-    def send_ee_pose(self, x, y, z, w=1.0):
+    def send_ee_pose(self, x, y, z, qx=0.0, qy=0.0, qz=0.0, qw=1.0):
         p = PoseStamped()
         p.header.frame_id = self.base_link
         p.pose.position.x = x
         p.pose.position.y = y
         p.pose.position.z = z
-        p.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=w) # TODO: Part of the assignment is to figure out w
+        p.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw) # Must be a unit quaternion
 
         req = MotionPlanRequest()
         req.group_name = self.arm_group
@@ -97,9 +96,9 @@ class RX200DealerClientNode(Node):
 
         jc = JointConstraint()
         jc.joint_name = self.gripper_joint
-        jc.position = 0.35 if open else 0.0
-        jc.tolerance_above = 0.01
-        jc.tolerance_below = 0.01
+        jc.position = 0.035 if open else 0.0238 # open is 3.5cm (+0 above and -0.5cm below) and close is 2.5cm
+        jc.tolerance_above = 0.0
+        jc.tolerance_below = 0.005
         jc.weight = 1.0
 
         gc = Constraints()
