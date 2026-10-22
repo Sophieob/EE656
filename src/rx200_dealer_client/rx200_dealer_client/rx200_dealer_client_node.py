@@ -1,10 +1,12 @@
 import rclpy
+import math
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import MotionPlanRequest, Constraints, PositionConstraint, OrientationConstraint, JointConstraint, MoveItErrorCodes
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import PoseStamped, Quaternion
+from tf_transformations import quaternion_from_euler
 
 
 class RX200DealerClientNode(Node):
@@ -20,12 +22,16 @@ class RX200DealerClientNode(Node):
         self.ee_link = 'rx200/ee_gripper_link'
         self.base_link = 'rx200/base_link'
         self.gripper_joint = 'left_finger'
+        self.waist_joint = 'waist'
 
         self.declare_parameter('gripper_start_state', value = True) # Can be set in arguments in launch files and set when you run ros2 run
         self.sequence = [
             lambda: self.send_gr_pose(True),
-            lambda: self.send_ee_pose(x = 0.3, y = 0.0, z = 0.08, qy = 0.7071068, qw = 0.7071068), # Pitch 90deg about y, gripper pointing down
+            lambda: self.send_ee_readable_pose(x = 0.3, y = 0.0, z = 0.08, pitch_degrees = 90.0),
             lambda: self.send_gr_pose(False),
+            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.3, pitch_degrees = 45.0, yaw_degrees=45.0),
+            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.08, pitch_degrees = 90.0, yaw_degrees=90.0),
+            lambda: self.send_gr_pose(True),
         ]
         self.step = 0
         self.step_delay = 0.5 # seconds to wait between steps
@@ -41,18 +47,31 @@ class RX200DealerClientNode(Node):
         self.sequence[self.step]()
         self.step += 1
 
+    def send_ee_readable_pose(self, x, y, z, roll_degrees = 0.0, pitch_degrees = 0.0, yaw_degrees = 0.0):
+        """
+        Define the end effector pose in human readable values. We use degrees instead
+        of radians and Euler (roll, pitch, and yaw) instead of quaterions
+        """
+
+        q = quaternion_from_euler(math.radians(roll_degrees), math.radians(pitch_degrees), math.radians(yaw_degrees))
+
+        return self.send_ee_pose(x=x, y=y, z=z, qx=q[0], qy=q[1], qz=q[2], qw=q[3])
 
     def send_ee_pose(self, x, y, z, qx=0.0, qy=0.0, qz=0.0, qw=1.0):
+        # From documentation, the default quaternion is x=0,y=0,z=0,w=1
+        # For orientation set by human, documentation suggests to first
+        # think of them in terms of Euler (roll, pitch, and yaw) then
+        # convert to quaterion (hard for humans to think in terms of quaterions)
         p = PoseStamped()
         p.header.frame_id = self.base_link
         p.pose.position.x = x
         p.pose.position.y = y
         p.pose.position.z = z
-        p.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw) # Must be a unit quaternion
+        p.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
 
         req = MotionPlanRequest()
         req.group_name = self.arm_group
-        req.allowed_planning_time = 5.0 # WTF is this?
+        req.allowed_planning_time = 10.0
         req.num_planning_attempts = 3
 
         # position tolerance
@@ -138,6 +157,7 @@ class RX200DealerClientNode(Node):
             return
 
         # Give joint states time to settle, otherwise the next plan's start state can be stale
+        # TODO: What would be the advantage of calling the next pose from _feedback_cb instead of here?
         self._wait_timer = self.create_timer(self.step_delay, self._delayed_next)
 
     def _delayed_next(self):
