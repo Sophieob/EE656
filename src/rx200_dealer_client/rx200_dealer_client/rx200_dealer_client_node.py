@@ -23,17 +23,18 @@ class RX200DealerClientNode(Node):
         self.base_link = 'rx200/base_link'
         self.gripper_joint = 'left_finger'
         self.waist_joint = 'waist'
-        self.home_pose = lambda: self.send_ee_readable_pose(x=0.358575, y=0.0, z=0.30457)
+        self.home_pose = lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.6, pitch_degrees = -45.0)
 
         self.declare_parameter('gripper_start_state', value = True) # Can be set in arguments in launch files and set when you run ros2 run
         self.sequence = [
             self.home_pose,
             lambda: self.send_gr_pose(True),
-            lambda: self.send_ee_readable_pose(x = 0.3, y = 0.0, z = 0.08, pitch_degrees = 90.0),
+            lambda: self.send_ee_readable_pose(x = 0.3, y = 0.0, z = 0.07, pitch_degrees = 90.0),
             lambda: self.send_gr_pose(False),
             lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.3, pitch_degrees = 45.0, yaw_degrees=45.0),
-            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.08, pitch_degrees = 90.0, yaw_degrees=90.0),
+            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.07, pitch_degrees = 90.0, yaw_degrees=90.0),
             lambda: self.send_gr_pose(True),
+            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.3, pitch_degrees = 45.0, yaw_degrees=90.0),
         ]
         self.step = 0
         self.step_delay = 0.5 # seconds to wait between steps
