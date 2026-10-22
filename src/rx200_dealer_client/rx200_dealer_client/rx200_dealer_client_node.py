@@ -36,7 +36,14 @@ class RX200DealerClientNode(Node):
         self.base_link = 'rx200/base_link'
         self.gripper_joint = 'left_finger'
         self.waist_joint = 'waist'
-        self.home_pose = lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.6, pitch_degrees = -45.0)
+        self.home_joints = {
+            'waist': 0.0,
+            'shoulder': 0.0,
+            'elbow': -1.57,
+            'wrist_angle': 0.0,
+            'wrist_rotate': 0.0,
+        }
+        self.home_pose = lambda: self.send_joint_pose(self.home_joints) # Updates for upright home position according to RViz coordinates
         self.table_coords = {
             TablePosition.DEALER: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
             TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
@@ -48,7 +55,7 @@ class RX200DealerClientNode(Node):
         self.declare_parameter('end_position', value = TablePosition.PLAYER_1.value)
 
         try:
-            self.sequence = self._start_and_end_positions_to_sequence(TablePosition(self.get_parameter('start_position').value), TablePosition(self.get_parameter('end_position').value))
+            self.sequence = [self.home_pose]
         except ValueError as e:
             self.get_logger().error(f"Wrong value for start position or end position provided. Cannot initialize robot: {e}")
 
@@ -168,6 +175,31 @@ class RX200DealerClientNode(Node):
         future = self._client.send_goal_async(goal) # No need for feedback but it can be provided
         future.add_done_callback(self._goal_response_cb)
 
+    def send_joint_pose(self, joint_positions):
+        req = MotionPlanRequest()
+        req.group_name = self.arm_group
+        req.allowed_planning_time = 5.0
+        req.num_planning_attempts = 3
+        req.max_velocity_scaling_factor = 0.2
+        req.max_acceleration_scaling_factor = 0.2
+
+        gc = Constraints()
+        for name, angle in joint_positions.items():
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = angle
+            jc.tolerance_above = 0.01
+            jc.tolerance_below = 0.01
+            jc.weight = 1.0
+            gc.joint_constraints.append(jc)
+        req.goal_constraints = [gc]
+
+        goal = MoveGroup.Goal()
+        goal.request = req
+        goal.planning_options.plan_only = False
+
+        future = self._client.send_goal_async(goal, self._feedback_cb)
+        future.add_done_callback(self._goal_response_cb)    
 
     def _goal_response_cb(self, future):
         handle_goal = future.result()
