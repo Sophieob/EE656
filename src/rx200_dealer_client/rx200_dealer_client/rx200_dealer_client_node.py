@@ -7,6 +7,19 @@ from moveit_msgs.msg import MotionPlanRequest, Constraints, PositionConstraint, 
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import PoseStamped, Quaternion
 from tf_transformations import quaternion_from_euler
+from dataclasses import dataclass
+from enum import Enum
+
+class TablePosition(str, Enum):
+    DEALER = 'dealer'
+    PLAYER_1 = 'player1'
+    PLAYER_2 = 'player2'
+
+@dataclass
+class TableCoordinates:
+    x: float
+    y: float
+    yaw_degrees: float
 
 
 class RX200DealerClientNode(Node):
@@ -24,23 +37,44 @@ class RX200DealerClientNode(Node):
         self.gripper_joint = 'left_finger'
         self.waist_joint = 'waist'
         self.home_pose = lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.6, pitch_degrees = -45.0)
+        self.table_coords = {
+            TablePosition.DEALER: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
+            TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
+            TablePosition.PLAYER_2: TableCoordinates(x = -0.3, y = 0.0, yaw_degrees = 180.0),
+        }
 
-        self.declare_parameter('gripper_start_state', value = True) # Can be set in arguments in launch files and set when you run ros2 run
-        self.sequence = [
-            self.home_pose,
-            lambda: self.send_gr_pose(True),
-            lambda: self.send_ee_readable_pose(x = 0.3, y = 0.0, z = 0.07, pitch_degrees = 90.0),
-            lambda: self.send_gr_pose(False),
-            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.0, z = 0.3, pitch_degrees = 45.0, yaw_degrees=45.0),
-            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.07, pitch_degrees = 90.0, yaw_degrees=90.0),
-            lambda: self.send_gr_pose(True),
-            lambda: self.send_ee_readable_pose(x = 0.0, y = 0.3, z = 0.3, pitch_degrees = 45.0, yaw_degrees=90.0),
-        ]
+        # parameters to be removed once you can specify the start and end positions from the CLI
+        self.declare_parameter('start_position', value = TablePosition.DEALER.value)
+        self.declare_parameter('end_position', value = TablePosition.PLAYER_1.value)
+
+        try:
+            self.sequence = self._start_and_end_positions_to_sequence(TablePosition(self.get_parameter('start_position').value), TablePosition(self.get_parameter('end_position').value))
+        except ValueError as e:
+            self.get_logger().error(f"Wrong value for start position or end position provided. Cannot initialize robot: {e}")
+
         self.step = 0
         self.step_delay = 0.5 # seconds to wait between steps
         self._send_next()
 
         self.get_logger().info('Robot initialized')
+
+    def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
+        return [
+            self.home_pose,
+            lambda: self.send_gr_pose(True),
+            self._table_coordinates_to_on_table_pose(self.table_coords[start]),
+            lambda: self.send_gr_pose(False),
+            self._table_coordinates_to_above_table_pose(self.table_coords[end]),
+            self._table_coordinates_to_on_table_pose(self.table_coords[end]),
+            lambda: self.send_gr_pose(True),
+            self._table_coordinates_to_above_table_pose(self.table_coords[end]),
+        ]
+
+    def _table_coordinates_to_on_table_pose(self, coords: TableCoordinates):
+        return lambda: self.send_ee_readable_pose(x = coords.x, y = coords.y, z = 0.07, yaw_degrees = coords.yaw_degrees, pitch_degrees = 90.0)
+
+    def _table_coordinates_to_above_table_pose(self, coords: TableCoordinates):
+        return lambda: self.send_ee_readable_pose(x = coords.x, y = coords.y, z = 0.3, yaw_degrees = coords.yaw_degrees, pitch_degrees = 45)
 
     def _send_next(self):
         if self.step >= len(self.sequence):
