@@ -55,7 +55,9 @@ class RX200DealerClientNode(Node):
         self.declare_parameter('end_position', value = TablePosition.PLAYER_1.value)
 
         try:
-            self.sequence = [self.home_pose]
+            start = TablePosition(self.get_parameter('start_position').value)
+            end = TablePosition(self.get_parameter('end_position').value)
+            self.sequence = self._start_and_end_positions_to_sequence(start, end)
         except ValueError as e:
             self.get_logger().error(f"Wrong value for start position or end position provided. Cannot initialize robot: {e}")
 
