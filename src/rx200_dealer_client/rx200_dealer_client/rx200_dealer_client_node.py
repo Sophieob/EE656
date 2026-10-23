@@ -223,6 +223,36 @@ class RX200DealerClientNode(Node):
             )
             return response
 
+        # Only allow dealing from community cards to a player.
+        
+        if start_position != TablePosition.CC:
+            response.accepted = False
+            response.error = (
+                "Invalid dealing route. Cards can only be dealt "
+                "from the community cards location (cc) to a player."
+            )
+            self.get_logger().warning(
+                f"Dealing route rejected: "
+                f"{start_position.value} -> {end_position.value}. "
+                "No motion will be sent."
+            )
+            return response
+
+        if end_position not in (
+            TablePosition.PLAYER_1,
+            TablePosition.PLAYER_2,
+        ):
+            response.accepted = False
+            response.error = (
+                "Invalid destination. Cards can only be dealt "
+                "to player1 or player2."
+            )
+            self.get_logger().warning(
+                f"Dealing destination rejected: {end_position.value}. "
+                "No motion will be sent."
+            )
+            return response
+
         # Validate the configured movement sequence.
         try:
             self._validate_sequence_positions(start_position, end_position)
