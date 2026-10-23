@@ -4,7 +4,7 @@ import math
 import time
 from dataclasses import dataclass
 from enum import Enum
-from rx200_dealer_interfaces.srv import PickAndPlaceCard
+from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition
 
 import rclpy
 from rclpy.node import Node
@@ -98,6 +98,7 @@ class RX200DealerClientNode(Node):
         self.step_delay = 0.5 # seconds to wait between steps
 
         self.create_service(PickAndPlaceCard, 'pick_and_place_card', self.handle_pick_and_place_card)
+        self.create_service(PointToPosition, 'point_to_position', self.handle_point_to_position)
 
         self.step = 0
         self.sequence = []
@@ -189,6 +190,16 @@ class RX200DealerClientNode(Node):
         if start not in self.table_coords or end not in self.table_coords:
             raise ValueError("Start/end must be one of: cc, player1, player2")
 
+    def _point_sequence(self, position: TablePosition):
+        coords = self.table_coords[position]
+        return [
+            ("home", self.home_pose),
+            ("open gripper", lambda: self.send_gr_pose(True)),
+            ("point at position", lambda: self.send_ee_readable_pose(
+                x=coords.x, y=coords.y, z=0.15,
+                yaw_degrees=coords.yaw_degrees, pitch_degrees=90.0)),
+        ]
+
     def handle_pick_and_place_card(self, request, response):
         try:
             start_position = TablePosition(request.start_position)
@@ -231,6 +242,44 @@ class RX200DealerClientNode(Node):
         self._send_next()
         response.accepted = True
 
+        return response
+
+    def handle_point_to_position(self, request, response):
+        try:
+            position = TablePosition(request.position)
+        except ValueError as exc:
+            self.get_logger().error(f"Invalid position. No motion instructions will be sent: {exc}")
+            response.accepted = False
+            response.error = str(exc)
+            return response
+
+        if self._faulted:
+            response.accepted = False
+            response.error = "Dealer is in fault state."
+            return response
+
+        if self._busy():
+            response.accepted = False
+            response.error = "Robot is busy executing another operation. Please wait until it finishes." 
+            return response
+
+        coords = self.table_coords[position]
+        try:
+            self.validate_position(coords.x, coords.y, 0.15)
+            self.validate_orientation(0.0, 90.0, coords.yaw_degrees)
+        except ValueError as exc:
+            self.get_logger().error(f"Point pose outside the allowed workspace: {exc}")
+            response.accepted = False
+            response.error = str(exc)
+            return response
+
+        self.get_logger().info(f"Pointing at {position.value}")
+        self.sequence = self._point_sequence(position)
+        self.step = 0
+        self._busy = True
+        self._send_next()
+
+        response.accepted = True
         return response
 
     def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
