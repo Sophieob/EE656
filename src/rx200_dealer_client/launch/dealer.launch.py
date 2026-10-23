@@ -30,7 +30,14 @@ def generate_launch_description():
 
     )
 
+    dealer_node = Node(
+        package='rx200_dealer_client',
+        executable='rx200_dealer',
+        output='screen',
+    )
+
     return LaunchDescription([
         hardware_type_arg,
         interbotix_moveit,
+        dealer_node,
     ])
