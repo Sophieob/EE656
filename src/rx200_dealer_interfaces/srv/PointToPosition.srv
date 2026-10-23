@@ -1,0 +1,4 @@
+string position
+---
+bool accepted
+string error
