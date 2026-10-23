@@ -4,6 +4,7 @@ import math
 import time
 from dataclasses import dataclass
 from enum import Enum
+from rx200_dealer_interfaces.srv import PickAndPlaceCard
 
 import rclpy
 from rclpy.node import Node
@@ -37,19 +38,12 @@ class TableCoordinates:
 
 
 class RX200DealerClientNode(Node):
-    """
-    Bounded RX200 blackjack pick-and-place sequence.
-
-    IMPORTANT:
-    - Workspace values below are examples and must be calibrated/validated
-      against the real robot, table, base frame, gripper geometry, and obstacles.
-    - Joint/controller limits must also be verified in the installed robot config.
-    - Software checks are not a substitute for the lab-approved emergency stop.
-    """
-
     def __init__(self):
         super().__init__("rx200_dealer")
+        self._client = ActionClient(self, MoveGroup, "/move_action")
         self.get_logger().info("Dealer started")
+        while not self._client.wait_for_server(1.0):
+            self.get_logger().warning("Action server not up")
 
         # ----- Motion safety parameters -----
         self.declare_parameter("x_min", -0.35)
@@ -101,10 +95,12 @@ class RX200DealerClientNode(Node):
             TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
             TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2, yaw_degrees = 135.0),
         }
+        self.step_delay = 0.5 # seconds to wait between steps
 
-        self.declare_parameter("start_position", value=TablePosition.CC.value)
-        self.declare_parameter("end_position", value=TablePosition.PLAYER_1.value)
+        self.create_service(PickAndPlaceCard, 'pick_and_place_card', self.handle_pick_and_place_card)
 
+        self.step = 0
+        self.sequence = []
         self._busy = False
         self._faulted = False
         self._active_goal_handle = None
@@ -112,41 +108,9 @@ class RX200DealerClientNode(Node):
         self._wait_timer = None
         self._goal_started_at = None
         self._pending_sequence = []
-
-        try:
-            start = TablePosition(self.get_parameter("start_position").value)
-            end = TablePosition(self.get_parameter("end_position").value)
-            self.sequence = self._start_and_end_positions_to_sequence(start, end)
-        except (ValueError, KeyError) as exc:
-            self.get_logger().fatal(
-                f"Invalid start/end position. No motion will be sent: {exc}"
-            )
-            self._faulted = True
-            self.sequence = []
-
-        self.step = 0
-
-        if not self._faulted:
-            try:
-                self._validate_sequence_positions()
-            except ValueError as exc:
-                self.get_logger().fatal(
-                    f"Configured sequence is outside the allowed workspace. "
-                    f"No motion will be sent: {exc}"
-                )
-                self._faulted = True
-
-        if not self._faulted:
-            self._client = ActionClient(self, MoveGroup, "/move_action")
-            self._server_wait_timer = self.create_timer(
-                1.0, self._check_action_server
-            )
-            self.get_logger().warning(
-                "Workspace checks are enabled, but configured bounds and poses "
-                "must be physically validated before use."
-            )
-        else:
-            self._client = None
+        self._server_wait_timer = self.create_timer(
+            1.0, self._check_action_server
+        )
 
     def _check_action_server(self):
         if self._faulted:
@@ -158,11 +122,8 @@ class RX200DealerClientNode(Node):
             self._server_wait_timer.cancel()
             self.destroy_timer(self._server_wait_timer)
             self.get_logger().info("MoveIt action server available.")
-            self._send_next()
         else:
             self.get_logger().warning("Waiting for /move_action server...")
-
-    # ---------- Workspace / input validation ----------
 
     def _limit(self, name):
         return float(self.get_parameter(name).value)
@@ -210,11 +171,8 @@ class RX200DealerClientNode(Node):
                     f"[{lower:.1f}, {upper:.1f}] degrees"
                 )
 
-    def _validate_sequence_positions(self):
-        for start_or_end in (
-            TablePosition(self.get_parameter("start_position").value),
-            TablePosition(self.get_parameter("end_position").value),
-        ):
+    def _validate_sequence_positions(self, start, end):
+        for start_or_end in (start, end):
             coords = self.table_coords[start_or_end]
             # Above-table pose
             self.validate_position(coords.x, coords.y, 0.3)
@@ -227,12 +185,55 @@ class RX200DealerClientNode(Node):
         self.validate_position(0.0, 0.0, 0.6)
         self.validate_orientation(0.0, -45.0, 0.0)
 
-    # ---------- Sequence construction ----------
-
     def _start_and_end_positions_to_sequence(self, start, end):
         if start not in self.table_coords or end not in self.table_coords:
             raise ValueError("Start/end must be one of: cc, player1, player2")
 
+    def handle_pick_and_place_card(self, request, response):
+        try:
+            start_position = TablePosition(request.start_position)
+            end_position = TablePosition(request.end_position)
+        except ValueError as exc:
+            self.get_logger().error(
+                f"Invalid start/end position. No motion will be sent: {exc}"
+            )
+            response.accepted = False
+            response.error = str(exc)
+
+            return response
+
+        # TODO: Handle cases where a request to the pick_and_place_card service recieved while still servicing a previous request
+
+        if self._faulted:
+            response.accepted = False
+            response.error = "Dealer is in FAULT state. Restart the node after assessing the robot."
+            return response
+
+        try:
+            self._validate_sequence_positions(start_position, end_position)
+        except ValueError as exc:
+            self.get_logger().fatal(
+                f"Configured sequence is outside the allowed workspace. "
+                f"No motion will be sent: {exc}"
+            )
+            self._faulted = True
+
+            response.accepted = False
+            response.error = str(exc)
+
+            return response
+
+        
+
+        self.get_logger().info(f"New request to pick_and_place_card accepted and being serviced")
+        self.sequence = self._start_and_end_positions_to_sequence(start_position, end_position)
+        self.step = 0
+        self._send_next()
+        response.accepted = True
+
+        return response
+
+    def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
         return [
             ("home", self.home_pose),
             ("open gripper", lambda: self.send_gr_pose(True)),
@@ -274,8 +275,6 @@ class RX200DealerClientNode(Node):
             yaw_degrees=coords.yaw_degrees,
             pitch_degrees=45.0,
         )
-
-    # ---------- Sequence execution ----------
 
     def _send_next(self):
         if self._faulted:
@@ -413,8 +412,6 @@ class RX200DealerClientNode(Node):
         if not self._faulted:
             self._send_next()
 
-    # ---------- Motion requests ----------
-
     def send_ee_readable_pose(
         self, x, y, z,
         roll_degrees=0.0,
@@ -541,7 +538,6 @@ class RX200DealerClientNode(Node):
         req.allowed_planning_time = 5.0
         req.num_planning_attempts = 3
         req.max_velocity_scaling_factor = 0.2
-        req.max_acceleration_scaling_factor = 0.2
 
         gc = Constraints()
         for name, angle in joint_positions.items():

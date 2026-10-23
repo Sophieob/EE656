@@ -10,8 +10,10 @@ To launch simulated robot:
 ros2 launch rx200_dealer_client dealer.launch.py hardware_type:=fake
 ```
 
-Before the CLI is created, you can change the start and end positions by running `ros2 run` directly on the dealer node. Possible values for the start and end position parameters are (`cc`, `player1`, and `player2`):
+Use the CLI to make the dealer move a card from the community cards to either player 1 using the command:
 
 ```sh
-ros2 run rx200_dealer_client rx200_dealer --ros-args -p start_position:=cc -p end_position:=player2
+ros2 run rx200_dealer_client cli move cc player1
 ```
+
+The CLI accepts the following locations; `cc`, `player1` and `player2`.
