@@ -82,10 +82,24 @@ class RX200DealerClientNode(Node):
         if self.step_delay < 0.0 or self.goal_timeout_sec <= 0.0:
             raise ValueError("step_delay must be >= 0 and goal_timeout_sec must be > 0")
 
+        self.arm_group = 'interbotix_arm'
+        self.gripper_group = 'interbotix_gripper'
+        self.ee_link = 'rx200/ee_gripper_link'
+        self.base_link = 'rx200/base_link'
+        self.gripper_joint = 'left_finger'
+        self.waist_joint = 'waist'
+        self.home_joints = {
+            'waist': 0.0,
+            'shoulder': 0.0,
+            'elbow': -1.57,
+            'wrist_angle': 0.0,
+            'wrist_rotate': 0.0,
+        }
+        self.home_pose = lambda: self.send_joint_pose(self.home_joints) # Updates for upright home position according to RViz coordinates
         self.table_coords = {
-            TablePosition.CC: TableCoordinates(0.3, 0.0, 0.0),
-            TablePosition.PLAYER_1: TableCoordinates(0.0, 0.3, 90.0),
-            TablePosition.PLAYER_2: TableCoordinates(-0.3, 0.0, 180.0),
+            TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
+            TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
+            TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2, yaw_degrees = 135.0),
         }
 
         self.declare_parameter("start_position", value=TablePosition.CC.value)
@@ -407,7 +421,13 @@ class RX200DealerClientNode(Node):
         pitch_degrees=0.0,
         yaw_degrees=0.0,
     ):
-        """Convert validated human-readable Euler angles to a quaternion."""
+        """
+        Define the end effector pose in human readable values. We use degrees instead
+        of radians and Euler (roll, pitch, and yaw) instead of quaterions
+        """
+        if yaw_degrees is None:
+            yaw_degrees = math.degrees(math.degrees(math.atan2(y , x)))
+
         try:
             self.validate_position(x, y, z)
             self.validate_orientation(
@@ -460,10 +480,17 @@ class RX200DealerClientNode(Node):
         oc.header.frame_id = self.base_link
         oc.link_name = self.ee_link
         oc.orientation = p.pose.orientation
-        oc.absolute_x_axis_tolerance = 0.005
-        oc.absolute_y_axis_tolerance = 0.005
-        oc.absolute_z_axis_tolerance = 0.005
+        oc.absolute_x_axis_tolerance = 0.05
+        oc.absolute_y_axis_tolerance = 0.05
+        oc.absolute_z_axis_tolerance = 0.05
         oc.weight = 1.0
+
+        wc = JointConstraint()
+        wc.joint_name = self.waist_joint
+        wc.position = math.atan2(y , x)
+        wc.tolerance_above = 0.05
+        wc.tolerance_below = 0.05
+        wc.weight - 1.0
 
         gc = Constraints()
         gc.position_constraints = [pc]
@@ -508,6 +535,31 @@ class RX200DealerClientNode(Node):
         future.add_done_callback(self._goal_response_cb)
         return True
 
+    def send_joint_pose(self, joint_positions):
+        req = MotionPlanRequest()
+        req.group_name = self.arm_group
+        req.allowed_planning_time = 5.0
+        req.num_planning_attempts = 3
+        req.max_velocity_scaling_factor = 0.2
+        req.max_acceleration_scaling_factor = 0.2
+
+        gc = Constraints()
+        for name, angle in joint_positions.items():
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = angle
+            jc.tolerance_above = 0.01
+            jc.tolerance_below = 0.01
+            jc.weight = 1.0
+            gc.joint_constraints.append(jc)
+        req.goal_constraints = [gc]
+
+        goal = MoveGroup.Goal()
+        goal.request = req
+        goal.planning_options.plan_only = False
+
+        future = self._client.send_goal_async(goal, self._feedback_cb)
+        future.add_done_callback(self._goal_response_cb)    
 
 def main(args=None):
     rclpy.init(args=args)
