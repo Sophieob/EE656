@@ -28,7 +28,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'rx200_dealer=rx200_dealer_client.rx200_dealer_client_node:main'
+            'rx200_dealer=rx200_dealer_client.rx200_dealer_client_node:main',
+            'cli=rx200_dealer_client.cli:main',
         ],
     },
 )

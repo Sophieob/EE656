@@ -1,0 +1,7 @@
+# Request
+string start_position
+string end_position
+---
+# Response
+bool accepted
+string error ""
