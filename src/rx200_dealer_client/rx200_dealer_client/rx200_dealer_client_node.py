@@ -52,7 +52,6 @@ class RX200DealerClientNode(Node):
         self.get_logger().info("Dealer started")
 
         # ----- Motion safety parameters -----
-        # Example limits only. Do NOT run until these are checked on the real setup.
         self.declare_parameter("x_min", -0.35)
         self.declare_parameter("x_max", 0.35)
         self.declare_parameter("y_min", -0.35)
@@ -61,7 +60,6 @@ class RX200DealerClientNode(Node):
         self.declare_parameter("z_max", 0.65)
 
         # Allowed Euler-angle ranges (degrees). These limit requested poses,
-        # not the full physical orientation of every robot link.
         self.declare_parameter("roll_min_deg", -10.0)
         self.declare_parameter("roll_max_deg", 10.0)
         self.declare_parameter("pitch_min_deg", -90.0)
@@ -90,8 +88,6 @@ class RX200DealerClientNode(Node):
             TablePosition.PLAYER_2: TableCoordinates(-0.3, 0.0, 180.0),
         }
 
-        # The original table positions are retained. They must be validated
-        # against the chosen workspace before enabling real motion.
         self.declare_parameter("start_position", value=TablePosition.CC.value)
         self.declare_parameter("end_position", value=TablePosition.PLAYER_1.value)
 
@@ -116,8 +112,6 @@ class RX200DealerClientNode(Node):
 
         self.step = 0
 
-        # Check all pre-defined requested poses against configured limits before
-        # starting. If any are outside the limits, abort rather than move.
         if not self._faulted:
             try:
                 self._validate_sequence_positions()
@@ -203,8 +197,6 @@ class RX200DealerClientNode(Node):
                 )
 
     def _validate_sequence_positions(self):
-        # Check all fixed poses used by this sequence before any movement.
-        # The configured workspace must include the selected positions.
         for start_or_end in (
             TablePosition(self.get_parameter("start_position").value),
             TablePosition(self.get_parameter("end_position").value),
@@ -217,7 +209,7 @@ class RX200DealerClientNode(Node):
             self.validate_position(coords.x, coords.y, 0.07)
             self.validate_orientation(0.0, 90.0, coords.yaw_degrees)
 
-        # Validate home pose too.
+        # Validate home pose.
         self.validate_position(0.0, 0.0, 0.6)
         self.validate_orientation(0.0, -45.0, 0.0)
 
@@ -329,8 +321,6 @@ class RX200DealerClientNode(Node):
         self._cancel_timer(self._goal_timer)
         self._cancel_timer(self._wait_timer)
 
-        # Request cancellation if a goal handle is available. Cancellation is
-        # asynchronous and must not be treated as an emergency stop.
         if self._active_goal_handle is not None:
             try:
                 self._active_goal_handle.cancel_goal_async()
@@ -470,8 +460,6 @@ class RX200DealerClientNode(Node):
         oc.header.frame_id = self.base_link
         oc.link_name = self.ee_link
         oc.orientation = p.pose.orientation
-        # Kept from the original code. This is very tight and may cause planning
-        # failures; adjust only after controlled validation.
         oc.absolute_x_axis_tolerance = 0.005
         oc.absolute_y_axis_tolerance = 0.005
         oc.absolute_z_axis_tolerance = 0.005
@@ -496,8 +484,6 @@ class RX200DealerClientNode(Node):
         if self._faulted:
             return False
 
-        # Retained from the user's original working code. Confirm these targets
-        # against the installed URDF and controller limits before physical use.
         req = MotionPlanRequest()
         req.group_name = self.gripper_group
         req.allowed_planning_time = 2.0
