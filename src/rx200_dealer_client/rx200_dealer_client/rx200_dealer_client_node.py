@@ -47,7 +47,7 @@ class RX200DealerClientNode(Node):
         self.table_coords = {
             TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
             TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
-            TablePosition.PLAYER_2: TableCoordinates(x = -0.3, y = 0.0, yaw_degrees = 180.0),
+            TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2, yaw_degrees = 135.0),
         }
 
         # parameters to be removed once you can specify the start and end positions from the CLI
@@ -98,6 +98,8 @@ class RX200DealerClientNode(Node):
         Define the end effector pose in human readable values. We use degrees instead
         of radians and Euler (roll, pitch, and yaw) instead of quaterions
         """
+        if yaw_degrees is None:
+            yaw_degrees = math.degrees(math.degrees(math.atan2(y , x)))
 
         q = quaternion_from_euler(math.radians(roll_degrees), math.radians(pitch_degrees), math.radians(yaw_degrees))
 
@@ -134,10 +136,17 @@ class RX200DealerClientNode(Node):
         oc.header.frame_id = self.base_link
         oc.link_name = self.ee_link
         oc.orientation = p.pose.orientation
-        oc.absolute_x_axis_tolerance = 0.005
-        oc.absolute_y_axis_tolerance = 0.005
-        oc.absolute_z_axis_tolerance = 0.005
+        oc.absolute_x_axis_tolerance = 0.05
+        oc.absolute_y_axis_tolerance = 0.05
+        oc.absolute_z_axis_tolerance = 0.05
         oc.weight = 1.0
+
+        wc = JointConstraint()
+        wc.joint_name = self.waist_joint
+        wc.position = math.atan2(y , x)
+        wc.tolerance_above = 0.05
+        wc.tolerance_below = 0.05
+        wc.weight - 1.0
 
         gc = Constraints()
         gc.position_constraints = [pc]
