@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 class TablePosition(str, Enum):
-    DEALER = 'dealer'
+    CC = 'cc' # Community Cards
     PLAYER_1 = 'player1'
     PLAYER_2 = 'player2'
 
@@ -45,13 +45,13 @@ class RX200DealerClientNode(Node):
         }
         self.home_pose = lambda: self.send_joint_pose(self.home_joints) # Updates for upright home position according to RViz coordinates
         self.table_coords = {
-            TablePosition.DEALER: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
+            TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
             TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
             TablePosition.PLAYER_2: TableCoordinates(x = -0.3, y = 0.0, yaw_degrees = 180.0),
         }
 
         # parameters to be removed once you can specify the start and end positions from the CLI
-        self.declare_parameter('start_position', value = TablePosition.DEALER.value)
+        self.declare_parameter('start_position', value = TablePosition.CC.value)
         self.declare_parameter('end_position', value = TablePosition.PLAYER_1.value)
 
         try:
