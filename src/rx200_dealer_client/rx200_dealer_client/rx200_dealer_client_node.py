@@ -103,6 +103,7 @@ class RX200DealerClientNode(Node):
         self.sequence = []
         self._busy = False
         self._faulted = False
+        self._goal_active = False
         self._active_goal_handle = None
         self._goal_timer = None
         self._wait_timer = None
@@ -189,48 +190,67 @@ class RX200DealerClientNode(Node):
         if start not in self.table_coords or end not in self.table_coords:
             raise ValueError("Start/end must be one of: cc, player1, player2")
 
+
     def handle_pick_and_place_card(self, request, response):
+        # Reject requests while another operation is running.
+        if self._busy:
+            response.accepted = False
+            response.error = (
+                "Robot is busy executing another pick-and-place operation. "
+                "Please wait until it finishes."
+            )
+            self.get_logger().warning(response.error)
+            return response
+
+        # Reject requests if the dealer is in a fault state.
+        if self._faulted:
+            response.accepted = False
+            response.error = (
+                "Dealer is in FAULT state. Restart the node after "
+                "assessing the robot."
+            )
+            return response
+
+        # Validate the requested table positions.
         try:
             start_position = TablePosition(request.start_position)
             end_position = TablePosition(request.end_position)
         except ValueError as exc:
+            response.accepted = False
+            response.error = str(exc)
             self.get_logger().error(
                 f"Invalid start/end position. No motion will be sent: {exc}"
             )
-            response.accepted = False
-            response.error = str(exc)
-
             return response
 
-        # TODO: Handle cases where a request to the pick_and_place_card service recieved while still servicing a previous request
-
-        if self._faulted:
-            response.accepted = False
-            response.error = "Dealer is in FAULT state. Restart the node after assessing the robot."
-            return response
-
+        # Validate the configured movement sequence.
         try:
             self._validate_sequence_positions(start_position, end_position)
         except ValueError as exc:
+            self._faulted = True
+            response.accepted = False
+            response.error = str(exc)
             self.get_logger().fatal(
                 f"Configured sequence is outside the allowed workspace. "
                 f"No motion will be sent: {exc}"
             )
-            self._faulted = True
-
-            response.accepted = False
-            response.error = str(exc)
-
             return response
 
-        
-
-        self.get_logger().info(f"New request to pick_and_place_card accepted and being serviced")
-        self.sequence = self._start_and_end_positions_to_sequence(start_position, end_position)
+        # Prepare and reserve the operation before starting movement.
+        self.sequence = self._start_and_end_positions_to_sequence(
+            start_position, end_position
+        )
         self.step = 0
-        self._send_next()
-        response.accepted = True
+        self._busy = True
 
+        self.get_logger().info(
+            "New pick-and-place request accepted and being serviced."
+        )
+
+        response.accepted = True
+        response.error = ""
+
+        self._send_next()
         return response
 
     def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
@@ -280,10 +300,15 @@ class RX200DealerClientNode(Node):
         if self._faulted:
             self.get_logger().error("FAULT state: sequence is stopped.")
             return
-        if self._busy:
-            self.get_logger().warning("A goal is already active; ignoring next step.")
+
+        if self._goal_active:
+            self.get_logger().warning(
+                "A movement goal is already active; ignoring next step."
+            )
             return
+
         if self.step >= len(self.sequence):
+            self._busy = False
             self.get_logger().info("Sequence complete.")
             return
 
@@ -295,17 +320,24 @@ class RX200DealerClientNode(Node):
         try:
             submitted = callback()
         except Exception as exc:
-            self._enter_fault(f"Step '{step_name}' raised an exception: {exc}")
+            self._enter_fault(
+                f"Step '{step_name}' raised an exception: {exc}"
+            )
             return
 
         if submitted is False:
-            self._enter_fault(f"Step '{step_name}' was rejected by local validation.")
+            self._enter_fault(
+                f"Step '{step_name}' was rejected by local validation."
+            )
             return
 
         self._busy = True
+        self._goal_active = True
         self._current_step_name = step_name
         self._goal_started_at = time.monotonic()
-        self._goal_timer = self.create_timer(0.25, self._check_goal_timeout)
+        self._goal_timer = self.create_timer(
+            0.25, self._check_goal_timeout
+        )
         self.step += 1
 
     def _check_goal_timeout(self):
@@ -326,6 +358,7 @@ class RX200DealerClientNode(Node):
 
         self._faulted = True
         self._busy = False
+        self._goal_active = False
         self.get_logger().fatal(f"FAULT: {reason}")
         self.get_logger().fatal(
             "Automatic sequence stopped. Assess the robot and use the lab-approved "
@@ -401,7 +434,16 @@ class RX200DealerClientNode(Node):
             return
 
         self._active_goal_handle = None
-        self._busy = False
+        self._goal_active = False
+
+        if self.step >= len(self.sequence):
+            self._busy = False
+            self.get_logger().info(
+                "Pick-and-place sequence completed." 
+                "Robot is ready for another request."
+            )
+            return
+
         self._wait_timer = self.create_timer(
             self.step_delay, self._delayed_next
         )
