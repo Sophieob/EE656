@@ -9,6 +9,7 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 from tf_transformations import quaternion_from_euler
 from dataclasses import dataclass
 from enum import Enum
+from rx200_dealer_interfaces.srv import PickAndPlaceCard
 
 class TablePosition(str, Enum):
     CC = 'cc' # Community Cards
@@ -42,21 +43,32 @@ class RX200DealerClientNode(Node):
             TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
             TablePosition.PLAYER_2: TableCoordinates(x = -0.3, y = 0.0, yaw_degrees = 180.0),
         }
-
-        # parameters to be removed once you can specify the start and end positions from the CLI
-        self.declare_parameter('start_position', value = TablePosition.CC.value)
-        self.declare_parameter('end_position', value = TablePosition.PLAYER_1.value)
-
-        try:
-            self.sequence = self._start_and_end_positions_to_sequence(TablePosition(self.get_parameter('start_position').value), TablePosition(self.get_parameter('end_position').value))
-        except ValueError as e:
-            self.get_logger().error(f"Wrong value for start position or end position provided. Cannot initialize robot: {e}")
-
-        self.step = 0
         self.step_delay = 0.5 # seconds to wait between steps
-        self._send_next()
+
+        self.create_service(PickAndPlaceCard, 'pick_and_place_card', self.handle_pick_and_place_card)
 
         self.get_logger().info('Robot initialized')
+
+    def handle_pick_and_place_card(self, request, response):
+        try:
+            start_position = TablePosition(request.start_position)
+            end_position = TablePosition(request.end_position)
+        except ValueError as e:
+            self.get_logger().error(f"Wrong value for start or end position provided: {e}")
+            response.accepted = False
+            response.error = str(e)
+
+            return response
+
+        # TODO: Handle cases where a request to the pick_and_place_card service recieved while still servicing a previous request
+
+        self.get_logger().info(f"New request to pick_and_place_card accepted and being serviced")
+        self.sequence = self._start_and_end_positions_to_sequence(start_position, end_position)
+        self.step = 0
+        self._send_next()
+        response.accepted = True
+
+        return response
 
     def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
         return [
