@@ -23,6 +23,8 @@ from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import PoseStamped, Quaternion
 from tf_transformations import quaternion_from_euler
 
+PICK_AND_PLACE_SRV_NAME: str = 'pick_and_place_card'
+POINT_TO_POSITION_SRV_NAME: str = 'point_to_position'
 
 class TablePosition(str, Enum):
     CC = "cc"
@@ -97,8 +99,8 @@ class RX200DealerClientNode(Node):
         }
         self.step_delay = 0.5 # seconds to wait between steps
 
-        self.create_service(PickAndPlaceCard, 'pick_and_place_card', self.handle_pick_and_place_card)
-        self.create_service(PointToPosition, 'point_to_position', self.handle_point_to_position)
+        self.create_service(PickAndPlaceCard, PICK_AND_PLACE_SRV_NAME, self.handle_pick_and_place_card)
+        self.create_service(PointToPosition, POINT_TO_POSITION_SRV_NAME, self.handle_point_to_position)
 
         self.step = 0
         self.sequence = []
@@ -307,7 +309,7 @@ class RX200DealerClientNode(Node):
             response.error = "Dealer is in fault state."
             return response
 
-        if self._busy():
+        if self._busy:
             response.accepted = False
             response.error = "Robot is busy executing another operation. Please wait until it finishes." 
             return response
@@ -333,7 +335,6 @@ class RX200DealerClientNode(Node):
 
     def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
         return [
-            ("home", self.home_pose),
             ("open gripper", lambda: self.send_gr_pose(True)),
             ("above pickup", self._table_coordinates_to_above_table_pose(
                 self.table_coords[start])),
