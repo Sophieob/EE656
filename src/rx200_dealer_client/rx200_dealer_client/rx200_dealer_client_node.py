@@ -36,7 +36,9 @@ class TablePosition(str, Enum):
 class TableCoordinates:
     x: float
     y: float
-    yaw_degrees: float
+
+    def get_yaw_degrees(self):
+        return math.degrees(math.atan2(self.y, self.x))
 
 
 class RX200DealerClientNode(Node):
@@ -93,9 +95,9 @@ class RX200DealerClientNode(Node):
         }
         self.home_pose = lambda: self.send_joint_pose(self.home_joints) # Updates for upright home position according to RViz coordinates
         self.table_coords = {
-            TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0, yaw_degrees = 0.0),
-            TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3, yaw_degrees = 90.0),
-            TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2, yaw_degrees = 135.0),
+            TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0),
+            TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3),
+            TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2),
         }
         self.step_delay = 0.5 # seconds to wait between steps
 
@@ -180,10 +182,10 @@ class RX200DealerClientNode(Node):
             coords = self.table_coords[start_or_end]
             # Above-table pose
             self.validate_position(coords.x, coords.y, 0.3)
-            self.validate_orientation(0.0, 45.0, coords.yaw_degrees)
+            self.validate_orientation(0.0, 45.0, coords.get_yaw_degrees())
             # On-table pose
             self.validate_position(coords.x, coords.y, 0.07)
-            self.validate_orientation(0.0, 90.0, coords.yaw_degrees)
+            self.validate_orientation(0.0, 90.0, coords.get_yaw_degrees())
 
         # Validate home pose.
         self.validate_position(0.0, 0.0, 0.6)
@@ -198,9 +200,7 @@ class RX200DealerClientNode(Node):
         return [
             ("home", self.home_pose),
             ("open gripper", lambda: self.send_gr_pose(True)),
-            ("point at position", lambda: self.send_ee_readable_pose(
-                x=coords.x, y=coords.y, z=0.15,
-                yaw_degrees=coords.yaw_degrees, pitch_degrees=90.0)),
+            ("point at position", lambda: self.send_ee_readable_pose(x=coords.x, y=coords.y, z=0.15, pitch_degrees=90.0)),
         ]
 
     def handle_pick_and_place_card(self, request, response):
@@ -317,7 +317,7 @@ class RX200DealerClientNode(Node):
         coords = self.table_coords[position]
         try:
             self.validate_position(coords.x, coords.y, 0.15)
-            self.validate_orientation(0.0, 90.0, coords.yaw_degrees)
+            self.validate_orientation(0.0, 90.0, coords.get_yaw_degrees())
         except ValueError as exc:
             self.get_logger().error(f"Point pose outside the allowed workspace: {exc}")
             response.accepted = False
@@ -362,7 +362,6 @@ class RX200DealerClientNode(Node):
             x=coords.x,
             y=coords.y,
             z=0.07,
-            yaw_degrees=coords.yaw_degrees,
             pitch_degrees=90.0,
         )
 
@@ -371,7 +370,6 @@ class RX200DealerClientNode(Node):
             x=coords.x,
             y=coords.y,
             z=0.3,
-            yaw_degrees=coords.yaw_degrees,
             pitch_degrees=45.0,
         )
 
@@ -537,14 +535,12 @@ class RX200DealerClientNode(Node):
         self, x, y, z,
         roll_degrees=0.0,
         pitch_degrees=0.0,
-        yaw_degrees=0.0,
     ):
         """
         Define the end effector pose in human readable values. We use degrees instead
         of radians and Euler (roll, pitch, and yaw) instead of quaterions
         """
-        if yaw_degrees is None:
-            yaw_degrees = math.degrees(math.degrees(math.atan2(y , x)))
+        yaw_degrees = TableCoordinates(x=x, y=y).get_yaw_degrees()
 
         try:
             self.validate_position(x, y, z)
