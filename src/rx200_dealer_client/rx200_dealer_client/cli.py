@@ -1,7 +1,9 @@
+import argparse
+import re
+import sys
 import rclpy
-import cmd
-from enum import Enum
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition
 from rx200_dealer_client.rx200_dealer_client_node import PICK_AND_PLACE_SRV_NAME, POINT_TO_POSITION_SRV_NAME, TableCoordinates
 
@@ -57,119 +59,73 @@ class ServicesClient:
             raise ValueError(f'Rejected: {response.error}')
 
 
-class ShellPrompt(Enum):
-    NONE = 0
-    START = 1
-    MOVE = 2
+def parse_coordinates(arg):
+    position = arg.strip()
+    x_y_str = position.split(',')
+    if len(x_y_str) != 2:
+        raise argparse.ArgumentTypeError(f"'{position}' is not a valid location. Use the format 'x,y' where x and y are floats")
+    try:
+        x = float(x_y_str[0].strip())
+        y = float(x_y_str[1].strip())
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{position}' is not a valid location. Use the format 'x,y' where x and y are floats")
+
+    return TableCoordinates(x, y)
 
 
-class DealerShell(cmd.Cmd):
-    intro = 'Welcome to the dealer shell. Type help or ? to list commands.\n'
-    prompt = '(dealer) '
-    last_prompt = ShellPrompt.NONE
+def deal(srv_client, start_coords: TableCoordinates, end_coords: TableCoordinates):
+    srv_client.point_to_position(start_coords)
 
-    def __init__(self, srv_client):
-        super().__init__()
-        self.srv_client = srv_client
-        self.start_coords = None
+    try:
+        answer = input("Place the card between the gripper's left and right fingers, then press enter to deal it (or type 'c' to cancel): ")
+    except EOFError:
+        answer = 'c'
+    if answer.strip().lower() in ('c', 'cancel'):
+        print("Deal cancelled")
+        return
 
-    def reset(self):
-        self.last_prompt = ShellPrompt.NONE
+    srv_client.pick_and_place(start_coords, end_coords)
 
-    def precmd(self, line):
-        return line if line == 'EOF' else line.lower()
 
-    def parse_arg(self, arg):
-        position = arg.strip()
-        x_y_str = position.split(',')
-        if len(x_y_str) != 2:
-            raise ValueError(f"'{position}' is not a valid location. Use the format 'x,y' where x and y are floats")
-        try:
-            x = float(x_y_str[0].strip())
-            y = float(x_y_str[1].strip())
-        except ValueError:
-            raise ValueError(f"'{position}' is not a valid location. Use the format 'x,y' where x and y are floats")
+def build_parser():
+    parser = argparse.ArgumentParser(prog='cli', description='Control the RX200 card dealer')
+    subparsers = parser.add_subparsers(dest='command', required=True)
 
-        return TableCoordinates(x, y)
+    deal_parser = subparsers.add_parser(
+        'deal',
+        help='Deal a card from one location to another',
+        description='Points to the start location, waits for you to confirm the card is in the gripper, then moves it to the end location')
+    # Treat coords with negative x (e.g. '-0.1,0.2') as positional arguments rather than options
+    deal_parser._negative_number_matcher = re.compile(r'^-\d*\.?\d+(,|$)')
+    deal_parser.add_argument('start', type=parse_coordinates, metavar='START', help="pick up location as 'x,y'")
+    deal_parser.add_argument('end', type=parse_coordinates, metavar='END', help="drop off location as 'x,y'")
 
-    def default(self, line):
-        if line == 'EOF':
-            print()
-            return True
-
-        print(f"Unknown command '{line}'. Type help or ? to list commands")
-
-    def emptyline(self):
-        # cmd.Cmd re-runs the last command by default, which would move the arm again
-        pass
-
-    def do_start(self, arg):
-        'Positions the gripper over the pick up location: start <x,y>'
-        try:
-            start_coords = self.parse_arg(arg)
-        except ValueError as ve: # Something wrong with the input
-            print(f"An error occurred while processing the input provided. Try again: {ve}")
-            return False
-        try:
-            self.srv_client.point_to_position(start_coords)
-        except ValueError as ve: # Something wrong with the input
-            print(f"An error occurred while servicing your request: {ve}")
-            return False
-        except RuntimeError as re:
-            print(f"A runtime error was thrown. Exiting: {re}")
-            self.reset()
-            return True
-
-        print("Place the card between the gripper's left and right fingers. Once that is done, call 'move <x,y>' and press enter")
-        self.last_prompt = ShellPrompt.START
-        self.start_coords = start_coords
-
-    def do_move(self, arg):
-        'Moves the card from the start location to another location: move <x,y>'
-        if self.last_prompt != ShellPrompt.START or self.start_coords is None:
-            print("First run the start command")
-            return False
-
-        try:
-            end_coords = self.parse_arg(arg)
-        except ValueError as ve: # Something wrong with the input
-            print(f"An error occurred while processing the input provided. Try again: {ve}")
-            return False
-
-        try:
-            self.srv_client.pick_and_place(self.start_coords, end_coords)
-        except ValueError as ve: # The dealer node rejected the request
-            print(f"An error occurred while servicing your request: {ve}")
-            return False
-        except RuntimeError as re:
-            print(f"A runtime error was thrown. Exiting: {re}")
-            self.reset()
-            return True
-
-        print("Once movement is done, run the start command to deal another card")
-        self.last_prompt = ShellPrompt.MOVE
-        self.start_coords = None
-
-    def do_quit(self, arg):
-        'Exits the dealer shell'
-        print("Bye!")
-        return True
+    return parser
 
 
 def main(args=None):
+    # Parse before starting ROS so that bad input fails without waiting for services
+    parsed = build_parser().parse_args(remove_ros_args(args if args is not None else sys.argv)[1:])
+
     rclpy.init(args=args)
     node = Node('rx200_dealer_cli')
+    exit_code = 0
     try:
         srv_client = ServicesClient(node)
-        DealerShell(srv_client).cmdloop()
+        if parsed.command == 'deal':
+            deal(srv_client, parsed.start, parsed.end)
     except KeyboardInterrupt:
-        print("\nBye!")
-    except RuntimeError as re:
-        print(f"Error: {re}")
+        print()
+        exit_code = 130 # Exit code indicating SIGINT
+    except (ValueError, RuntimeError) as ve:
+        print(f"Error: {ve}", file=sys.stderr)
+        exit_code = 1
     finally:
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+    sys.exit(exit_code)
 
 
 if __name__ == '__main__':
