@@ -26,12 +26,6 @@ from tf_transformations import quaternion_from_euler
 PICK_AND_PLACE_SRV_NAME: str = 'pick_and_place_card'
 POINT_TO_POSITION_SRV_NAME: str = 'point_to_position'
 
-class TablePosition(str, Enum):
-    CC = "cc"
-    PLAYER_1 = "player1"
-    PLAYER_2 = "player2"
-
-
 @dataclass
 class TableCoordinates:
     x: float
@@ -94,11 +88,6 @@ class RX200DealerClientNode(Node):
             'wrist_rotate': 0.0,
         }
         self.home_pose = lambda: self.send_joint_pose(self.home_joints) # Updates for upright home position according to RViz coordinates
-        self.table_coords = {
-            TablePosition.CC: TableCoordinates(x = 0.3, y = 0.0),
-            TablePosition.PLAYER_1: TableCoordinates(x = 0.0, y = 0.3),
-            TablePosition.PLAYER_2: TableCoordinates(x = -0.2, y = 0.2),
-        }
         self.step_delay = 0.5 # seconds to wait between steps
 
         self.create_service(PickAndPlaceCard, PICK_AND_PLACE_SRV_NAME, self.handle_pick_and_place_card)
@@ -178,8 +167,7 @@ class RX200DealerClientNode(Node):
                 )
 
     def _validate_sequence_positions(self, start, end):
-        for start_or_end in (start, end):
-            coords = self.table_coords[start_or_end]
+        for coords in (start, end):
             # Above-table pose
             self.validate_position(coords.x, coords.y, 0.3)
             self.validate_orientation(0.0, 45.0, coords.get_yaw_degrees())
@@ -191,16 +179,11 @@ class RX200DealerClientNode(Node):
         self.validate_position(0.0, 0.0, 0.6)
         self.validate_orientation(0.0, -45.0, 0.0)
 
-    def _start_and_end_positions_to_sequence(self, start, end):
-        if start not in self.table_coords or end not in self.table_coords:
-            raise ValueError("Start/end must be one of: cc, player1, player2")
-
-    def _point_sequence(self, position: TablePosition):
-        coords = self.table_coords[position]
+    def _point_sequence(self, coordinates: TableCoordinates):
         return [
             ("home", self.home_pose),
             ("open gripper", lambda: self.send_gr_pose(True)),
-            ("point at position", lambda: self.send_ee_readable_pose(x=coords.x, y=coords.y, z=0.15, pitch_degrees=90.0)),
+            ("point at position", lambda: self.send_ee_readable_pose(x=coordinates.x, y=coordinates.y, z=0.07, pitch_degrees=90.0)),
         ]
 
     def handle_pick_and_place_card(self, request, response):
@@ -223,51 +206,10 @@ class RX200DealerClientNode(Node):
             )
             return response
 
-        # Validate the requested table positions.
+        start_coords = TableCoordinates(x=request.start_x, y=request.start_y)
+        end_coords = TableCoordinates(x=request.end_x, y=request.end_y)
         try:
-            start_position = TablePosition(request.start_position)
-            end_position = TablePosition(request.end_position)
-        except ValueError as exc:
-            response.accepted = False
-            response.error = str(exc)
-            self.get_logger().error(
-                f"Invalid start/end position. No motion will be sent: {exc}"
-            )
-            return response
-
-        # Only allow dealing from community cards to a player.
-        
-        if start_position != TablePosition.CC:
-            response.accepted = False
-            response.error = (
-                "Invalid dealing route. Cards can only be dealt "
-                "from the community cards location (cc) to a player."
-            )
-            self.get_logger().warning(
-                f"Dealing route rejected: "
-                f"{start_position.value} -> {end_position.value}. "
-                "No motion will be sent."
-            )
-            return response
-
-        if end_position not in (
-            TablePosition.PLAYER_1,
-            TablePosition.PLAYER_2,
-        ):
-            response.accepted = False
-            response.error = (
-                "Invalid destination. Cards can only be dealt "
-                "to player1 or player2."
-            )
-            self.get_logger().warning(
-                f"Dealing destination rejected: {end_position.value}. "
-                "No motion will be sent."
-            )
-            return response
-
-        # Validate the configured movement sequence.
-        try:
-            self._validate_sequence_positions(start_position, end_position)
+            self._validate_sequence_positions(start_coords, end_coords)
         except ValueError as exc:
             self._faulted = True
             response.accepted = False
@@ -280,7 +222,7 @@ class RX200DealerClientNode(Node):
 
         # Prepare and reserve the operation before starting movement.
         self.sequence = self._start_and_end_positions_to_sequence(
-            start_position, end_position
+            start_coords, end_coords
         )
         self.step = 0
         self._busy = True
@@ -296,13 +238,7 @@ class RX200DealerClientNode(Node):
         return response
 
     def handle_point_to_position(self, request, response):
-        try:
-            position = TablePosition(request.position)
-        except ValueError as exc:
-            self.get_logger().error(f"Invalid position. No motion instructions will be sent: {exc}")
-            response.accepted = False
-            response.error = str(exc)
-            return response
+        coords = TableCoordinates(x=request.position_x, y=request.position_y)
 
         if self._faulted:
             response.accepted = False
@@ -314,7 +250,6 @@ class RX200DealerClientNode(Node):
             response.error = "Robot is busy executing another operation. Please wait until it finishes." 
             return response
 
-        coords = self.table_coords[position]
         try:
             self.validate_position(coords.x, coords.y, 0.15)
             self.validate_orientation(0.0, 90.0, coords.get_yaw_degrees())
@@ -324,8 +259,8 @@ class RX200DealerClientNode(Node):
             response.error = str(exc)
             return response
 
-        self.get_logger().info(f"Pointing at {position.value}")
-        self.sequence = self._point_sequence(position)
+        self.get_logger().info(f"Pointing at {coords}")
+        self.sequence = self._point_sequence(coords)
         self.step = 0
         self._busy = True
         self._send_next()
@@ -333,23 +268,16 @@ class RX200DealerClientNode(Node):
         response.accepted = True
         return response
 
-    def _start_and_end_positions_to_sequence(self, start: TablePosition, end: TablePosition):
+    def _start_and_end_positions_to_sequence(self, start: TableCoordinates, end: TableCoordinates):
+        # TODO: Before starting sequence, make sure the current and and y coordinates
+        # are the same as the start x and y coordinates and the gripper is already open
         return [
-            ("open gripper", lambda: self.send_gr_pose(True)),
-            ("above pickup", self._table_coordinates_to_above_table_pose(
-                self.table_coords[start])),
-            ("descend to pickup", self._table_coordinates_to_on_table_pose(
-                self.table_coords[start])),
             ("close gripper", lambda: self.send_gr_pose(False)),
-            ("lift from pickup", self._table_coordinates_to_above_table_pose(
-                self.table_coords[start])),
-            ("above destination", self._table_coordinates_to_above_table_pose(
-                self.table_coords[end])),
-            ("descend to destination", self._table_coordinates_to_on_table_pose(
-                self.table_coords[end])),
-            ("release block", lambda: self.send_gr_pose(True)),
-            ("retreat from destination", self._table_coordinates_to_above_table_pose(
-                self.table_coords[end])),
+            ("lift from pickup", self._table_coordinates_to_above_table_pose(start)),
+            ("above destination", self._table_coordinates_to_above_table_pose(end)),
+            ("descend to destination", self._table_coordinates_to_on_table_pose(end)),
+            ("release gripper", lambda: self.send_gr_pose(True)),
+            ("retreat from destination", self._table_coordinates_to_above_table_pose(end)),
         ]
 
     def home_pose(self):
