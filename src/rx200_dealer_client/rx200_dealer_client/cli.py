@@ -100,7 +100,6 @@ def build_parser():
         'deal',
         help='Deal a card from one location to another',
         description='Points to the start location, waits for you to confirm the card is in the gripper, then moves it to the end location')
-    # Treat coords with negative x (e.g. '-0.1,0.2') as positional arguments rather than options
     deal_parser._negative_number_matcher = re.compile(r'^-\d*\.?\d+(,|$)')
     deal_parser.add_argument('start', type=parse_coordinates, metavar='START', help="pick up location as 'x,y'")
     deal_parser.add_argument('end', type=parse_coordinates, metavar='END', help="drop off location as 'x,y'")
