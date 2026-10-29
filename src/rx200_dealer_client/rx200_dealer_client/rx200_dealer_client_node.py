@@ -96,7 +96,6 @@ class RX200DealerClientNode(Node):
         self.step = 0
         self.sequence = []
         self._busy = False
-        self._faulted = False
         self._goal_active = False
         self._active_goal_handle = None
         self._goal_timer = None
@@ -108,11 +107,6 @@ class RX200DealerClientNode(Node):
         )
 
     def _check_action_server(self):
-        if self._faulted:
-            self._server_wait_timer.cancel()
-            self.destroy_timer(self._server_wait_timer)
-            return
-
         if self._client.server_is_ready():
             self._server_wait_timer.cancel()
             self.destroy_timer(self._server_wait_timer)
@@ -123,7 +117,7 @@ class RX200DealerClientNode(Node):
     def _limit(self, name):
         return float(self.get_parameter(name).value)
 
-    def validate_position(self, x, y, z):
+    def _validate_position(self, x, y, z):
         values = (x, y, z)
         if not all(math.isfinite(float(v)) for v in values):
             raise ValueError("Position contains NaN or infinity")
@@ -143,7 +137,7 @@ class RX200DealerClientNode(Node):
                     f"[{lower:.3f}, {upper:.3f}] m"
                 )
 
-    def validate_orientation(self, roll_degrees, pitch_degrees, yaw_degrees):
+    def _validate_orientation(self, roll_degrees, pitch_degrees, yaw_degrees):
         angles = (
             ("roll", float(roll_degrees),
              self._limit("roll_min_deg"), self._limit("roll_max_deg")),
@@ -166,24 +160,11 @@ class RX200DealerClientNode(Node):
                     f"[{lower:.1f}, {upper:.1f}] degrees"
                 )
 
-    def _validate_sequence_positions(self, start, end):
-        for coords in (start, end):
-            # Above-table pose
-            self.validate_position(coords.x, coords.y, 0.3)
-            self.validate_orientation(0.0, 45.0, coords.get_yaw_degrees())
-            # On-table pose
-            self.validate_position(coords.x, coords.y, 0.07)
-            self.validate_orientation(0.0, 90.0, coords.get_yaw_degrees())
-
-        # Validate home pose.
-        self.validate_position(0.0, 0.0, 0.6)
-        self.validate_orientation(0.0, -45.0, 0.0)
-
     def _point_sequence(self, coordinates: TableCoordinates):
         return [
             ("home", self.home_pose),
             ("open gripper", lambda: self.send_gr_pose(True)),
-            ("point at position", lambda: self.send_ee_readable_pose(x=coordinates.x, y=coordinates.y, z=0.07, pitch_degrees=90.0)),
+            ("point at position", self._table_coordinates_to_on_table_pose(coordinates)),
         ]
 
     def handle_pick_and_place_card(self, request, response):
@@ -197,33 +178,23 @@ class RX200DealerClientNode(Node):
             self.get_logger().warning(response.error)
             return response
 
-        # Reject requests if the dealer is in a fault state.
-        if self._faulted:
-            response.accepted = False
-            response.error = (
-                "Dealer is in FAULT state. Restart the node after "
-                "assessing the robot."
-            )
-            return response
-
         start_coords = TableCoordinates(x=request.start_x, y=request.start_y)
         end_coords = TableCoordinates(x=request.end_x, y=request.end_y)
+
+        # Prepare and reserve the operation before starting movement.
         try:
-            self._validate_sequence_positions(start_coords, end_coords)
+            self.sequence = self._start_and_end_positions_to_sequence(
+                start_coords, end_coords
+            )
         except ValueError as exc:
-            self._faulted = True
             response.accepted = False
             response.error = str(exc)
             self.get_logger().fatal(
                 f"Configured sequence is outside the allowed workspace. "
                 f"No motion will be sent: {exc}"
             )
+            self._enter_fault(str(exc))
             return response
-
-        # Prepare and reserve the operation before starting movement.
-        self.sequence = self._start_and_end_positions_to_sequence(
-            start_coords, end_coords
-        )
         self.step = 0
         self._busy = True
 
@@ -240,27 +211,23 @@ class RX200DealerClientNode(Node):
     def handle_point_to_position(self, request, response):
         coords = TableCoordinates(x=request.position_x, y=request.position_y)
 
-        if self._faulted:
-            response.accepted = False
-            response.error = "Dealer is in fault state."
-            return response
-
         if self._busy:
             response.accepted = False
             response.error = "Robot is busy executing another operation. Please wait until it finishes." 
             return response
 
+        self.get_logger().info(f"Pointing at {coords}")
         try:
-            self.validate_position(coords.x, coords.y, 0.15)
-            self.validate_orientation(0.0, 90.0, coords.get_yaw_degrees())
+            self.sequence = self._point_sequence(coords)
         except ValueError as exc:
-            self.get_logger().error(f"Point pose outside the allowed workspace: {exc}")
             response.accepted = False
             response.error = str(exc)
+            self.get_logger().fatal(
+                f"Configured sequence is outside the allowed workspace. "
+                f"No motion will be sent: {exc}"
+            )
+            self._enter_fault(str(exec))
             return response
-
-        self.get_logger().info(f"Pointing at {coords}")
-        self.sequence = self._point_sequence(coords)
         self.step = 0
         self._busy = True
         self._send_next()
@@ -281,11 +248,18 @@ class RX200DealerClientNode(Node):
         ]
 
     def home_pose(self):
+        # TODO: Is this called?
         return self.send_ee_readable_pose(
             x=0.0, y=0.0, z=0.6, pitch_degrees=-45.0
         )
 
     def _table_coordinates_to_on_table_pose(self, coords):
+        self.validate_ee_readable_pose(
+            x=coords.x,
+            y=coords.y,
+            z=0.07,
+            pitch_degrees=90.0,
+        )
         return lambda: self.send_ee_readable_pose(
             x=coords.x,
             y=coords.y,
@@ -294,6 +268,12 @@ class RX200DealerClientNode(Node):
         )
 
     def _table_coordinates_to_above_table_pose(self, coords):
+        self.validate_ee_readable_pose(
+            x=coords.x,
+            y=coords.y,
+            z=0.3,
+            pitch_degrees=45.0,
+        )
         return lambda: self.send_ee_readable_pose(
             x=coords.x,
             y=coords.y,
@@ -302,10 +282,6 @@ class RX200DealerClientNode(Node):
         )
 
     def _send_next(self):
-        if self._faulted:
-            self.get_logger().error("FAULT state: sequence is stopped.")
-            return
-
         if self._goal_active:
             self.get_logger().warning(
                 "A movement goal is already active; ignoring next step."
@@ -358,10 +334,6 @@ class RX200DealerClientNode(Node):
             )
 
     def _enter_fault(self, reason):
-        if self._faulted:
-            return
-
-        self._faulted = True
         self._busy = False
         self._goal_active = False
         self.get_logger().fatal(f"FAULT: {reason}")
@@ -387,9 +359,6 @@ class RX200DealerClientNode(Node):
                 pass
 
     def _goal_response_cb(self, future):
-        if self._faulted:
-            return
-
         try:
             handle_goal = future.result()
         except Exception as exc:
@@ -405,15 +374,10 @@ class RX200DealerClientNode(Node):
         handle_goal.get_result_async().add_done_callback(self._result_cb)
 
     def _feedback_cb(self, feedback_msg):
-        if self._faulted:
-            return
         state = feedback_msg.feedback.state
         self.get_logger().info(f"MoveIt state: {state}")
 
     def _result_cb(self, future):
-        if self._faulted:
-            return
-
         self._cancel_timer(self._goal_timer)
         self._goal_timer = None
         self._goal_started_at = None
@@ -456,8 +420,19 @@ class RX200DealerClientNode(Node):
     def _delayed_next(self):
         self._cancel_timer(self._wait_timer)
         self._wait_timer = None
-        if not self._faulted:
-            self._send_next()
+        self._send_next()
+
+    def validate_ee_readable_pose(
+            self, x, y, z,
+            roll_degrees=0.0,
+            pitch_degrees=0.0,
+        ):
+            yaw_degrees = TableCoordinates(x=x, y=y).get_yaw_degrees()
+
+            self._validate_position(x, y, z)
+            self._validate_orientation(
+                roll_degrees, pitch_degrees, yaw_degrees
+            )
 
     def send_ee_readable_pose(
         self, x, y, z,
@@ -470,31 +445,28 @@ class RX200DealerClientNode(Node):
         """
         yaw_degrees = TableCoordinates(x=x, y=y).get_yaw_degrees()
 
-        try:
-            self.validate_position(x, y, z)
-            self.validate_orientation(
-                roll_degrees, pitch_degrees, yaw_degrees
-            )
-        except (ValueError, TypeError) as exc:
-            self.get_logger().error(f"Motion rejected locally: {exc}")
-            return False
+        self._validate_position(x, y, z)
+        self._validate_orientation(
+            roll_degrees, pitch_degrees, yaw_degrees
+        )
 
         q = quaternion_from_euler(
             math.radians(roll_degrees),
             math.radians(pitch_degrees),
             math.radians(yaw_degrees),
         )
-        return self.send_ee_pose(
+        return self._send_ee_pose(
             x=x, y=y, z=z, qx=q[0], qy=q[1], qz=q[2], qw=q[3]
         )
 
-    def send_ee_pose(
+    def _send_ee_pose(
         self, x, y, z,
         qx=0.0, qy=0.0, qz=0.0, qw=1.0,
     ):
-        if self._faulted:
-            return False
-
+        """
+        The arguments accepted by this method are assumed to have been validated
+        already
+        """
         p = PoseStamped()
         p.header.frame_id = self.base_link
         p.pose.position.x = float(x)
@@ -551,9 +523,6 @@ class RX200DealerClientNode(Node):
         return True
 
     def send_gr_pose(self, open=True):
-        if self._faulted:
-            return False
-
         req = MotionPlanRequest()
         req.group_name = self.gripper_group
         req.allowed_planning_time = 2.0
