@@ -19,11 +19,19 @@ class ServicesClient:
         self._wait_for_service(self.point_to_position_client)
 
     def _wait_for_service(self, client):
-        # Do not wait here: if the CLI is started before MoveIt, it must exit
-        # instead of sending the request automatically when MoveIt starts.
+        discovery_timeout_sec = 3.0
+        check_interval_sec = 0.2
+        elapsed_sec = 0.0
+
+        while elapsed_sec < discovery_timeout_sec:
+            if client.wait_for_service(timeout_sec=check_interval_sec):
+                return
+            elapsed_sec += check_interval_sec
+
         if not client.wait_for_service(timeout_sec=0.0):
             raise RuntimeError(
-                "MoveIt/dealer services are not available. "
+                "MoveIt/dealer services were not discovered within "
+                f"{discovery_timeout_sec:.0f} seconds. "
                 "Launch MoveIt and the RX200 dealer node first, then run the CLI again."
             )
 
@@ -92,7 +100,6 @@ def build_parser():
         'deal',
         help='Deal a card from one location to another',
         description='Points to the start location, waits for you to confirm the card is in the gripper, then moves it to the end location')
-    # Treat coords with negative x (e.g. '-0.1,0.2') as positional arguments rather than options
     deal_parser._negative_number_matcher = re.compile(r'^-\d*\.?\d+(,|$)')
     deal_parser.add_argument('start', type=parse_coordinates, metavar='START', help="pick up location as 'x,y'")
     deal_parser.add_argument('end', type=parse_coordinates, metavar='END', help="drop off location as 'x,y'")
