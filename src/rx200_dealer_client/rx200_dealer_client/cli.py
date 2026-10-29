@@ -7,7 +7,6 @@ from rclpy.utilities import remove_ros_args
 from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition
 from rx200_dealer_client.rx200_dealer_client_node import PICK_AND_PLACE_SRV_NAME, POINT_TO_POSITION_SRV_NAME, TableCoordinates
 
-SRV_TIMEOUT_RETRIES = 6
 SRV_TIMEOUT_SECS = 10
 
 class ServicesClient:
@@ -20,15 +19,13 @@ class ServicesClient:
         self._wait_for_service(self.point_to_position_client)
 
     def _wait_for_service(self, client):
-        wait_count = 0
-        print(f"Waiting for the {client.srv_name} service", end="", flush=True)
-        while not client.wait_for_service(timeout_sec=SRV_TIMEOUT_SECS):
-            print(".", end="", flush=True)
-            wait_count += 1
-            if wait_count > SRV_TIMEOUT_RETRIES:
-                print()
-                raise RuntimeError(f"The {client.srv_name} service was not available after {wait_count * SRV_TIMEOUT_SECS}s. Is the dealer node running?")
-        print(" ready")
+        # Do not wait here: if the CLI is started before MoveIt, it must exit
+        # instead of sending the request automatically when MoveIt starts.
+        if not client.wait_for_service(timeout_sec=0.0):
+            raise RuntimeError(
+                "MoveIt/dealer services are not available. "
+                "Launch MoveIt and the RX200 dealer node first, then run the CLI again."
+            )
 
     def pick_and_place(self, start_coords: TableCoordinates, end_coords: TableCoordinates):
         request = PickAndPlaceCard.Request(start_x=start_coords.x, start_y=start_coords.y, end_x=end_coords.x, end_y=end_coords.y)
@@ -77,7 +74,7 @@ def deal(srv_client, start_coords: TableCoordinates, end_coords: TableCoordinate
     srv_client.point_to_position(start_coords)
 
     try:
-        answer = input("Place the card between the gripper's left and right fingers, then press enter to deal it (or type 'c' to cancel): ")
+        answer = input("Wait for the sequence to complete, then Place the card between the gripper's left and right fingers, then press enter to deal it (or type 'c' to cancel): ")
     except EOFError:
         answer = 'c'
     if answer.strip().lower() in ('c', 'cancel'):
