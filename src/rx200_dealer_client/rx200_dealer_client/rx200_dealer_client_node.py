@@ -532,11 +532,12 @@ class RX200DealerClientNode(Node):
         wc.position = math.atan2(y , x)
         wc.tolerance_above = 0.05
         wc.tolerance_below = 0.05
-        wc.weight - 1.0
+        wc.weight = 1.0
 
         gc = Constraints()
         gc.position_constraints = [pc]
         gc.orientation_constraints = [oc]
+        gc.joint_constraints = [wc]
         req.goal_constraints = [gc]
 
         goal = MoveGroup.Goal()
