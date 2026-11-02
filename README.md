@@ -44,7 +44,7 @@ The node's default software limits for x and y are -0.35 m to 0.35 m. A coordina
 
 The CLI first sends the robot to the pickup position. When it reaches the position, place the card block between the gripper fingers and press Enter. Type `c` or `cancel` to cancel before the pick-and-place operation begins. The robot then closes the gripper, lifts from pickup, moves above the drop-off point, lowers the card, opens the gripper, and retreats.
 
-<img width="1496" height="1420" alt="Screenshot 2026-11-02 at 13 50 11" src="https://github.com/user-attachments/assets/c9e8cd13-133d-44df-8bb2-29e1bf38df66" />
+<img width="1504" height="1378" alt="Screenshot 2026-11-02 at 13 52 08" src="https://github.com/user-attachments/assets/bf5c7e4c-6d52-4d54-853c-8822d489e74c" />
 
 
 Team members
