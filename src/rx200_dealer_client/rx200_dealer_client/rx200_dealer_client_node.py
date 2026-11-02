@@ -26,7 +26,7 @@ from tf_transformations import quaternion_from_euler
 PICK_AND_PLACE_SRV_NAME: str = 'pick_and_place_card'
 POINT_TO_POSITION_SRV_NAME: str = 'point_to_position'
 
-@dataclass  
+@dataclass
 class TableCoordinates:
     # Container for an (x, y) position on the table (in meters), in the robot's base_link frame, which come from the user input
     x: float
@@ -37,6 +37,13 @@ class TableCoordinates:
         return math.degrees(math.atan2(self.y, self.x))
 
 
+    def get_radius(self) -> float:
+        return math.hypot(self.x, self.y)
+
+    def is_within_bounds(self, max_radius: float, min_radius: float) -> bool:
+        return self.get_radius() >= min_radius and self.get_radius() <= max_radius
+
+
 class RX200DealerClientNode(Node):
     def __init__(self):
         super().__init__("rx200_dealer") # Registers this node with ROS2 as "rx200_dealer"
@@ -45,13 +52,11 @@ class RX200DealerClientNode(Node):
         while not self._client.wait_for_server(1.0): # Blocks until MoveIt is running
             self.get_logger().warning("Action server not up")
 
-        # Motion safety and timing parameters: x, y, and z limits define the safe workspace box (in meters), roll, pitch and yaw limits defne the allowed orientations (in degrees) and the stop_delay is the pause between steps
-        self.declare_parameter("x_min", -0.35)
-        self.declare_parameter("x_max", 0.35)
-        self.declare_parameter("y_min", -0.35)
-        self.declare_parameter("y_max", 0.35)
-        self.declare_parameter("z_min", 0.05)
-        self.declare_parameter("z_max", 0.65)
+        # Motion safety and timing parameters: radius_max and radius_min limit define the
+        # safe workspace box (in meters), roll, pitch and yaw limits defne the allowed
+        # orientations (in degrees) and the stop_delay is the pause between steps
+        self.declare_parameter("radius_max", 0.31)
+        self.declare_parameter("radius_min", 0.1)
 
         # Allowed Euler-angle ranges (degrees). These limit requested poses,
         self.declare_parameter("roll_min_deg", -10.0)
@@ -71,7 +76,7 @@ class RX200DealerClientNode(Node):
         self.base_link = "rx200/base_link"
         self.gripper_joint = "left_finger"
 
-        # Reads the timing parameters and refuses to start if they are invalid
+        # Reads the timing parameters and refuses to start if they are invalid(self.x * self.x) + (self.y * self.y)
         self.step_delay = float(self.get_parameter("step_delay").value)
         self.goal_timeout_sec = float(self.get_parameter("goal_timeout_sec").value)
 
@@ -131,22 +136,11 @@ class RX200DealerClientNode(Node):
         if not all(math.isfinite(float(v)) for v in values): # Raise ValueError if (x, y, z) is NaN/infinite or outside the robot's workspace limit
             raise ValueError("Position contains NaN or infinity")
 
-        # A list of limits for the robot's workspace, any coordinates entered by the user that are outside these limits will be rejected before the arm moves
-        bounds = (
-            ("x", float(x), self._limit("x_min"), self._limit("x_max")),
-            ("y", float(y), self._limit("y_min"), self._limit("y_max")),
-            ("z", float(z), self._limit("z_min"), self._limit("z_max")),
-        )
-
-        for axis, value, lower, upper in bounds:
-            if lower > upper: # Catches a misconfiguration (min > max)
-                raise ValueError(f"Invalid configuration: {axis}_min > {axis}_max") 
-            if not lower <= value <= upper: # Catches a value outside it's limits
-                # Stops the function and passes the error back so the handlers know to reject a request
-                raise ValueError(
-                    f"{axis.upper()}={value:.3f} m is outside "
-                    f"[{lower:.3f}, {upper:.3f}] m"
-                )
+        table_coords = TableCoordinates(x=x, y=y)
+        if not table_coords.is_within_bounds(
+            max_radius=self.get_parameter("radius_max").value,
+            min_radius=self.get_parameter("radius_min").value):
+            raise ValueError(f"The coordinates provided aren't within the allowed range: max_radius={self.get_parameter('radius_max').value}, min_radius={self.get_parameter('radius_min').value}, provided_radius={table_coords.get_radius()}")
 
     # Follows the same pattern as _validate_position but instead for roll, pitch and yaw values 
     def _validate_orientation(self, roll_degrees, pitch_degrees, yaw_degrees):
@@ -511,6 +505,7 @@ class RX200DealerClientNode(Node):
         req.group_name = self.arm_group
         req.allowed_planning_time = 10.0
         req.num_planning_attempts = 3
+        req.max_velocity_scaling_factor = 0.05
 
         # The position constraint, the tip 'ee_link' must end inside a 1cm sphere at the target
         pc = PositionConstraint()
