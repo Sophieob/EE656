@@ -60,5 +60,5 @@ Team members
 - Janam Pandya
 
 For this project, we worked in two sprints. The second sprint began when we started working on dynamic pick-and-place positions. <br>
-To view sprint 1's backlog: **label:sprint-1** <br>
-To view sprint 2's backlog: **label:sprint-2**
+[To view sprint 1's backlog:](https://github.com/users/Sophieob/projects/2/views/1?filterQuery=label%3Asprint-1) <br>
+[To view sprint 2's backlog:](https://github.com/users/Sophieob/projects/2/views/1?filterQuery=label%3Asprint-2)
