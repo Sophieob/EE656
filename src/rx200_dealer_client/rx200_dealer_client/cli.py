@@ -4,8 +4,8 @@ import sys
 import rclpy
 from rclpy.node import Node
 from rclpy.utilities import remove_ros_args
-from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition
-from rx200_dealer_client.rx200_dealer_client_node import PICK_AND_PLACE_SRV_NAME, POINT_TO_POSITION_SRV_NAME, TableCoordinates
+from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition, ValidatePickAndPlaceCard
+from rx200_dealer_client.rx200_dealer_client_node import PICK_AND_PLACE_SRV_NAME, POINT_TO_POSITION_SRV_NAME, VALIDATE_PICK_AND_PLACE_SRV_NAME, TableCoordinates
 
 SRV_TIMEOUT_SECS = 10
 
@@ -17,6 +17,9 @@ class ServicesClient:
 
         self.point_to_position_client = node.create_client(PointToPosition, POINT_TO_POSITION_SRV_NAME)
         self._wait_for_service(self.point_to_position_client)
+
+        self.validate_pick_and_place_client = node.create_client(ValidatePickAndPlaceCard, VALIDATE_PICK_AND_PLACE_SRV_NAME)
+        self._wait_for_service(self.validate_pick_and_place_client)
 
     def _wait_for_service(self, client):
         discovery_timeout_sec = 3.0
@@ -49,6 +52,20 @@ class ServicesClient:
         else:
             raise ValueError(f'Rejected: {response.error}')
 
+    def validate_pick_and_place(self, start_coords: TableCoordinates, end_coords: TableCoordinates):
+            request = ValidatePickAndPlaceCard.Request(start_x=start_coords.x, start_y=start_coords.y, end_x=end_coords.x, end_y=end_coords.y)
+            future = self.validate_pick_and_place_client.call_async(request)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=SRV_TIMEOUT_SECS)
+    
+            if not future.done():
+                raise RuntimeError(f'No response from {VALIDATE_PICK_AND_PLACE_SRV_NAME} within {SRV_TIMEOUT_SECS}s')
+    
+            response = future.result()
+            if response.accepted:
+                print(f'Validated: ({start_coords.x}, {start_coords.y}) -> ({end_coords.x}, {end_coords.y})')
+            else:
+                raise ValueError(f'Rejected: {response.error}')
+
     def point_to_position(self, coords: TableCoordinates):
         request = PointToPosition.Request(position_x=coords.x, position_y=coords.y)
         future = self.point_to_position_client.call_async(request)
@@ -79,6 +96,7 @@ def parse_coordinates(arg):
 
 
 def deal(srv_client, start_coords: TableCoordinates, end_coords: TableCoordinates):
+    srv_client.validate_pick_and_place(start_coords, end_coords)
     srv_client.point_to_position(start_coords)
 
     try:
