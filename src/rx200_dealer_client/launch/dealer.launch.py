@@ -7,6 +7,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+# ROS2 calls this function when the user runs the ROS2 launch command and it returns a list of things to start
 def generate_launch_description():
     hardware_type_arg = DeclareLaunchArgument(
         'hardware_type',
@@ -15,6 +16,7 @@ def generate_launch_description():
     )
     hardware_type = LaunchConfiguration('hardware_type')
 
+    # Runs the Interbotix MoveIt launch file from inside the launch file (Starts the robot driver, controllers, MoveIt's move_group with the /move_actions and RViz)
     interbotix_moveit = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -30,12 +32,14 @@ def generate_launch_description():
 
     )
 
+    # Starts the dealer node
     dealer_node = Node(
         package='rx200_dealer_client',
         executable='rx200_dealer',
         output='screen',
     )
 
+# Started in this order but run all at the same time. The dealer node waits for MoveIt by itself
     return LaunchDescription([
         hardware_type_arg,
         interbotix_moveit,
