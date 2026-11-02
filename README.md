@@ -29,7 +29,7 @@ Keep this launch running while using the CLI. The CLI checks for the dealer serv
 In a second terminal, source the ROS 2 installation and workspace overlay, then run the `deal` command:
 
 ```sh
-ros2 run rx200_dealer_client cli deal 0.2,0.1 0.3,-0.1
+ros2 run rx200_dealer_client cli deal 0.2,0.1 0.1,-0.2
 ```
 
 The command takes two coordinates:
@@ -40,7 +40,7 @@ cli deal <PICKUP_X,PICKUP_Y> <DROPOFF_X,DROPOFF_Y>
 
 Each coordinate is written as `x,y`, with `x` first and `y` second. Values are in metres relative to the robot base frame. Use a comma between the values and no spaces. Negative values are allowed; for example, `0.3,-0.1` means x = 0.3 m and y = -0.1 m.
 
-The node's default software limits for x and y are -0.35 m to 0.35 m. A coordinate inside those limits is not necessarily reachable for every arm pose, so use positions verified for the robot and table setup.
+The x and y coordinates provided for pick-up and drop-off points must allow for a radius between 0.10 m and 0.31 m from the center of the robot's base, measured across the table. 
 
 The CLI first sends the robot to the pickup position. When it reaches the position, place the card block between the gripper fingers and press Enter. Type `c` or `cancel` to cancel before the pick-and-place operation begins. The robot then closes the gripper, lifts from pickup, moves above the drop-off point, lowers the card, opens the gripper, and retreats.
 
