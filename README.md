@@ -58,3 +58,7 @@ Team members
 - Jason Rogena
 - Sophie O’Brien
 - Janam Pandya
+
+For this project, we worked in two sprints. The second sprint began when we started working on dynamic pick-and-place positions.
+To view sprint 1's backlog: **label:sprint-1**
+To view sprint 2's backlog: **label:sprint-2**
