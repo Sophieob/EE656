@@ -59,6 +59,6 @@ Team members
 - Sophie O’Brien
 - Janam Pandya
 
-For this project, we worked in two sprints. The second sprint began when we started working on dynamic pick-and-place positions.
-To view sprint 1's backlog: **label:sprint-1**
+For this project, we worked in two sprints. The second sprint began when we started working on dynamic pick-and-place positions. <br>
+To view sprint 1's backlog: **label:sprint-1** <br>
 To view sprint 2's backlog: **label:sprint-2**
