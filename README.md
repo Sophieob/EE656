@@ -46,6 +46,9 @@ The CLI first sends the robot to the pickup position. When it reaches the positi
 
 <img width="752" height="689" alt="Screenshot 2026-11-02 at 13 52 08" src="https://github.com/user-attachments/assets/bf5c7e4c-6d52-4d54-853c-8822d489e74c" />
 
+To calculate the radius     
+  def get_radius(self) -> float:
+        return math.hypot(self.x, self.y)
 
 Team members
 
