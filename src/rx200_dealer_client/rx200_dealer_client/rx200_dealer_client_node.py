@@ -4,7 +4,7 @@ import math
 import time
 from dataclasses import dataclass
 from enum import Enum
-from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition
+from rx200_dealer_interfaces.srv import PickAndPlaceCard, PointToPosition, ValidatePickAndPlaceCard
 
 import rclpy
 from rclpy.node import Node
@@ -25,6 +25,7 @@ from tf_transformations import quaternion_from_euler
 
 PICK_AND_PLACE_SRV_NAME: str = 'pick_and_place_card'
 POINT_TO_POSITION_SRV_NAME: str = 'point_to_position'
+VALIDATE_PICK_AND_PLACE_SRV_NAME: str = 'validate_pick_and_place_card'
 
 @dataclass
 class TableCoordinates:
@@ -103,6 +104,7 @@ class RX200DealerClientNode(Node):
 
         # Registers both services with their relevant handler
         self.create_service(PickAndPlaceCard, PICK_AND_PLACE_SRV_NAME, self.handle_pick_and_place_card)
+        self.create_service(ValidatePickAndPlaceCard, VALIDATE_PICK_AND_PLACE_SRV_NAME, self.handle_validate_pick_and_place_card)
         self.create_service(PointToPosition, POINT_TO_POSITION_SRV_NAME, self.handle_point_to_position)
 
         # State variables
@@ -214,6 +216,24 @@ class RX200DealerClientNode(Node):
         response.error = ""
 
         self._send_next()
+        return response
+
+    def handle_validate_pick_and_place_card(self, request, response):
+        start_coords = TableCoordinates(x=request.start_x, y=request.start_y)
+        end_coords = TableCoordinates(x=request.end_x, y=request.end_y)
+        if not start_coords.is_within_bounds(max_radius=self.get_parameter('radius_max').value, min_radius=self.get_parameter('radius_min').value):
+            response.accepted = False
+            response.error = f"The start coordinates provided aren't within the allowed range: max_radius={self.get_parameter('radius_max').value}, min_radius={self.get_parameter('radius_min').value}, provided_radius={start_coords.get_radius()}"
+            return response
+
+        if not end_coords.is_within_bounds(max_radius=self.get_parameter('radius_max').value, min_radius=self.get_parameter('radius_min').value):
+            response.accepted = False
+            response.error = f"The end coordinates provided aren't within the allowed range: max_radius={self.get_parameter('radius_max').value}, min_radius={self.get_parameter('radius_min').value}, provided_radius={end_coords.get_radius()}"
+            return response
+
+        response.accepted = True
+        response.error = ""
+
         return response
 
     def handle_point_to_position(self, request, response):
