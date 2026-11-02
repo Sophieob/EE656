@@ -6,21 +6,21 @@ package_name = 'rx200_dealer_client'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.1.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'config'), glob('launch/*.launch.py')),
-        (os.path.join('share', package_name, 'config'), glob('config/*.yam1')),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='master26',
-    maintainer_email='master26@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    maintainer='Maynooth University MSc. Robotics and Embedded AI Group 5',
+    maintainer_email='sophie.obrien.2021@mumail.ie',
+    description='ROS 2 card-dealing project built around the Interbotix RX200 robotic arm',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',

@@ -2,10 +2,10 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>rx200_dealer_client</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="master26@todo.todo">master26</maintainer>
-  <license>TODO: License declaration</license>
+  <version>0.1.0</version>
+  <description>ROS 2 card-dealing project built around the Interbotix RX200 robotic arm</description>
+  <maintainer email="sophie.obrien.2021@mumail.ie">Maynooth University MSc. Robotics and Embedded AI Group 5</maintainer>
+  <license>MIT</license>
 
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>interbotix_xsarm_moveit</exec_depend>
