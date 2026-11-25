@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<robot name="rx200" xmlns:xacro="http://ros.org/wiki/xacro">
+  <joint name="camera_mount_joint" type="fixed">
+    <parent link="rx200/wrist_link" />
+    <child link="camera_link" />
+    <origin xyz="0.08 0.0 0.098" rpy="0 0.785 0" />
+  </joint>
+  <link name="camera_link">
+    <visual><geometry><box size="0.025 0.09 0.025" /></geometry></visual>
+    <collision><geometry><box size="0.025 0.09 0.025" /></geometry></collision>
+  </link>
+</robot>
