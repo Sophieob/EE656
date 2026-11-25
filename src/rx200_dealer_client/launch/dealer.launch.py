@@ -15,6 +15,7 @@ def generate_launch_description():
         description='actual = real robot, fake = simulated robot in RViz',
     )
     hardware_type = LaunchConfiguration('hardware_type')
+    external_urdf_loc = os.path.join(get_package_share_directory('rx200_dealer_client'), 'urdf', 'rx200_external.urdf.xacro')
 
     # Runs the Interbotix MoveIt launch file from inside the launch file (Starts the robot driver, controllers, MoveIt's move_group with the /move_actions and RViz)
     interbotix_moveit = IncludeLaunchDescription(
@@ -28,6 +29,7 @@ def generate_launch_description():
         launch_arguments={
             'robot_model': 'rx200',
             'hardware_type': hardware_type,
+            'external_urdf_loc': external_urdf_loc,
         } .items()
 
     )
